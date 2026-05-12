@@ -1,0 +1,16 @@
+[package]
+name = "remote-call-trigger-desktop"
+version = "0.1.0"
+description = "Local desktop client for triggering Android ACTION_CALL requests."
+authors = ["tinywind"]
+edition = "2021"
+
+[lib]
+name = "remote_call_trigger_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

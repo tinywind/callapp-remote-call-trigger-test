@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Remote Call Trigger</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="panel" aria-labelledby="app-title">
+        <div class="heading">
+          <h1 id="app-title">Remote Call Trigger</h1>
+          <p>Send a local-network call request to the Android receiver.</p>
+        </div>
+
+        <form id="call-form" class="call-form">
+          <label>
+            Phone IP
+            <input
+              id="phone-ip"
+              name="phoneIp"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="192.168.0.25"
+              required
+            />
+          </label>
+
+          <label>
+            Port
+            <input
+              id="phone-port"
+              name="phonePort"
+              inputmode="numeric"
+              autocomplete="off"
+              value="8088"
+              required
+            />
+          </label>
+
+          <label>
+            Token
+            <input
+              id="call-token"
+              name="callToken"
+              autocomplete="off"
+              value="dev-token"
+              required
+            />
+          </label>
+
+          <label>
+            Number
+            <input
+              id="phone-number"
+              name="phoneNumber"
+              inputmode="tel"
+              autocomplete="off"
+              placeholder="+821012345678"
+              required
+            />
+          </label>
+
+          <button id="call-button" type="submit">Trigger Call</button>
+        </form>
+
+        <output id="status" class="status" role="status">Idle</output>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

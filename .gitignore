@@ -1,0 +1,20 @@
+/.tmp/
+/.playwright-mcp/
+
+# Desktop app
+/desktop/node_modules/
+/desktop/dist/
+/desktop/src-tauri/gen/
+/desktop/src-tauri/target/
+
+# Android app
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+
+# Editors and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
