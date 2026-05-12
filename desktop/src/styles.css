@@ -92,6 +92,21 @@ button {
   font-weight: 700;
 }
 
+.demo-button {
+  min-height: 52px;
+  background: #0f7b6c;
+}
+
+.button-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+#hangup-button {
+  background: #b42318;
+}
+
 button:disabled {
   cursor: wait;
   opacity: 0.65;
@@ -129,5 +144,9 @@ button:disabled {
 
   .panel {
     padding: 20px;
+  }
+
+  .button-row {
+    grid-template-columns: 1fr;
   }
 }

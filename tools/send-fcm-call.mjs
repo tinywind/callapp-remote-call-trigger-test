@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const PHONE_NUMBER_PATTERN = /^[+0-9*#]{2,32}$/;
+const ACTIONS = new Set(["call", "hangup"]);
 
 const readOption = (name) => {
   const valueFromEnv = process.env[name.replaceAll("-", "_").toUpperCase()];
@@ -77,7 +78,17 @@ const fetchAccessToken = async (serviceAccount) => {
   return JSON.parse(text).access_token;
 };
 
-const sendFcmCall = async ({ accessToken, projectId, deviceToken, callToken, number, port }) => {
+const sendFcmCommand = async ({ accessToken, projectId, deviceToken, action, callToken, number, port }) => {
+  const data = {
+    action,
+    token: callToken,
+    port
+  };
+
+  if (number) {
+    data.number = number;
+  }
+
   const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
     method: "POST",
     headers: {
@@ -90,12 +101,7 @@ const sendFcmCall = async ({ accessToken, projectId, deviceToken, callToken, num
         android: {
           priority: "HIGH"
         },
-        data: {
-          action: "call",
-          token: callToken,
-          number,
-          port
-        }
+        data
       }
     })
   });
@@ -118,23 +124,33 @@ const main = async () => {
   const serviceAccount = JSON.parse(await readFile(serviceAccountPath, "utf8"));
   const projectId = readOption("project-id") || serviceAccount.project_id;
   const deviceToken = requireOption("device-token");
+  const action = readOption("action") || "call";
   const callToken = readOption("call-token") || "dev-token";
-  const number = requireOption("number");
+  const number = readOption("number");
   const port = readOption("port") || "8088";
 
   if (!projectId) {
     throw new Error("Missing --project-id and service account project_id.");
   }
 
-  if (!PHONE_NUMBER_PATTERN.test(number)) {
+  if (!ACTIONS.has(action)) {
+    throw new Error("Use --action call or --action hangup.");
+  }
+
+  if (action === "call" && !number) {
+    throw new Error("Missing --number for --action call.");
+  }
+
+  if (number && !PHONE_NUMBER_PATTERN.test(number)) {
     throw new Error("Use digits, +, *, or # only. Length must be 2-32.");
   }
 
   const accessToken = await fetchAccessToken(serviceAccount);
-  const result = await sendFcmCall({
+  const result = await sendFcmCommand({
     accessToken,
     projectId,
     deviceToken,
+    action,
     callToken,
     number,
     port

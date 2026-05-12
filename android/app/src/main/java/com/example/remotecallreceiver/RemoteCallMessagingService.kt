@@ -6,8 +6,9 @@ import com.google.firebase.messaging.RemoteMessage
 class RemoteCallMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
+        val action = data["action"]
 
-        if (data["action"] != ACTION_CALL) {
+        if (action !in setOf(ACTION_CALL, ACTION_HANG_UP)) {
             return
         }
 
@@ -19,6 +20,17 @@ class RemoteCallMessagingService : FirebaseMessagingService() {
             return
         }
 
+        val port = data["port"]?.toIntOrNull() ?: CallReceiverService.savedPort(this)
+
+        if (action == ACTION_HANG_UP) {
+            CallReceiverService.hangUp(
+                context = this,
+                port = port,
+                token = expectedToken
+            )
+            return
+        }
+
         val number = data["number"].orEmpty().trim()
 
         if (number.isBlank()) {
@@ -26,7 +38,6 @@ class RemoteCallMessagingService : FirebaseMessagingService() {
             return
         }
 
-        val port = data["port"]?.toIntOrNull() ?: CallReceiverService.savedPort(this)
         val started = CallReceiverService.start(
             context = this,
             port = port,
@@ -45,5 +56,6 @@ class RemoteCallMessagingService : FirebaseMessagingService() {
 
     private companion object {
         const val ACTION_CALL = "call"
+        const val ACTION_HANG_UP = "hangup"
     }
 }

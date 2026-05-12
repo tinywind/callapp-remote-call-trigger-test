@@ -172,6 +172,12 @@ class MainActivity : Activity() {
             permissions += Manifest.permission.CALL_PHONE
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            !hasPermission(Manifest.permission.ANSWER_PHONE_CALLS)
+        ) {
+            permissions += Manifest.permission.ANSWER_PHONE_CALLS
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             !hasPermission(Manifest.permission.POST_NOTIFICATIONS)
         ) {

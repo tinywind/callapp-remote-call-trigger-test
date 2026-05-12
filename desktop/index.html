@@ -61,7 +61,14 @@
             />
           </label>
 
-          <button id="call-button" type="submit">Trigger Call</button>
+          <button id="demo-button" class="demo-button" type="button">
+            Demo: Call, Hang Up After 3s
+          </button>
+
+          <div class="button-row" aria-label="Manual controls">
+            <button id="call-button" type="submit">Trigger Call</button>
+            <button id="hangup-button" type="button">Hang Up</button>
+          </div>
         </form>
 
         <output id="status" class="status" role="status">Idle</output>

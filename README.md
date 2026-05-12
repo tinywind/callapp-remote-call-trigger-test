@@ -5,9 +5,13 @@ call from a desktop app through an Android phone on the same network.
 
 Current flow:
 
-1. The desktop Tauri app sends `POST /call` to the Android phone IP.
-2. The Android foreground service validates the shared token and phone number.
-3. The Android service requests an outgoing call through `TelecomManager.placeCall()`.
+1. The desktop Tauri app sends `POST /call` or `POST /hangup` to the Android
+   phone IP.
+2. The Android foreground service validates the shared token and validates the
+   phone number when the request places a call.
+3. The Android service requests an outgoing call through
+   `TelecomManager.placeCall()` or requests ending the active call through
+   `TelecomManager.endCall()`.
 4. The service stays alive through a foreground notification and a battery
    optimization whitelist during local testing.
 5. If the LAN receiver is not running, FCM high-priority data messages can ask
@@ -20,6 +24,8 @@ production call-control integration.
 
 - The Android app can place real outgoing calls after the `CALL_PHONE`
   permission is granted.
+- The Android app can request ending the active call after the
+  `ANSWER_PHONE_CALLS` permission is granted.
 - Test only with numbers you control.
 - Do not use emergency, premium-rate, or third-party numbers for validation.
 - Keep the Android foreground service notification running during testing.
@@ -46,6 +52,7 @@ Default receiver settings:
 - Port: `8088`
 - Token: `dev-token`
 - Endpoint: `POST http://PHONE_IP:8088/call`
+- Hang up endpoint: `POST http://PHONE_IP:8088/hangup`
 
 The request body must be JSON:
 
@@ -60,6 +67,15 @@ The request must include:
 ```text
 X-Call-Token: dev-token
 Content-Type: application/json
+```
+
+The hang up request uses the same token header and does not require a body:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://PHONE_IP:8088/hangup" `
+  -Headers @{ "X-Call-Token" = "dev-token" }
 ```
 
 The receiver can also be started over ADB for validation:
@@ -103,13 +119,23 @@ outside the repository, for example:
 C:\Users\tinywind\.secrets\callapp-remote-call-test\firebase-service-account.json
 ```
 
-Expected FCM data payload:
+Expected FCM call data payload:
 
 ```json
 {
   "action": "call",
   "token": "dev-token",
   "number": "+821012345678",
+  "port": "8088"
+}
+```
+
+Expected FCM hang up data payload:
+
+```json
+{
+  "action": "hangup",
+  "token": "dev-token",
   "port": "8088"
 }
 ```
@@ -133,6 +159,16 @@ node tools/send-fcm-call.mjs `
   --port "8088"
 ```
 
+For FCM hang up testing, use:
+
+```powershell
+node tools/send-fcm-call.mjs `
+  --device-token "<android-fcm-token>" `
+  --action "hangup" `
+  --call-token "dev-token" `
+  --port "8088"
+```
+
 ## Desktop Client
 
 From `desktop/`, install dependencies and run the Tauri app:
@@ -142,8 +178,10 @@ npm install
 npm run tauri:dev
 ```
 
-Enter the Samsung phone IP, port, token, and target number, then trigger the
-call.
+Enter the Samsung phone IP, port, token, and target number. The desktop app can
+trigger a call, send a manual hang up request, or run the demo action that
+places the call and sends hang up three seconds after the call request is
+accepted.
 
 ## Manual HTTP Check
 
@@ -202,6 +240,24 @@ Completed checks:
 - In that killed-process FCM test, app state changed back to `running=true` and
   S23 Telecom logs showed `START_OUTGOING_CALL`, `SET_CONNECTING`,
   `PLACE_OUTGOING_CALL`, `SET_DIALING`, and `LOG_DISCONNECTED_CALL`.
+- Hang up support was added through `TelecomManager.endCall()` with the
+  `ANSWER_PHONE_CALLS` runtime permission.
+- With no active call, `POST /hangup` returned `409 Conflict` and app state
+  recorded `TelecomManager.endCall found no active call to end.`
+- During an active outgoing S23 test call, `POST /hangup` returned `202
+  Accepted`, app state recorded `TelecomManager.endCall ended the active call`,
+  and S23 Telecom logs showed `REQUEST_DISCONNECT` from
+  `com.example.remotecallreceiver` followed by `LOG_DISCONNECTED_CALL`.
+- FCM `action=hangup` was accepted by Firebase Cloud Messaging. ADB log capture
+  dropped immediately after that send, so direct Telecom log confirmation for
+  the FCM hang up path is still pending. A follow-up LAN `POST /hangup` returned
+  `409 Conflict`, which means no active call remained by then.
+- The actual Tauri desktop WebView demo button was run against the S23. The app
+  sent `/call`, waited three seconds after the call request was accepted, sent
+  `/hangup`, and showed `Demo complete. Call ended after 3 seconds.`
+- In that desktop demo run, `/call` returned `202 Accepted`, `/hangup` returned
+  `202 Accepted`, the measured gap after `/call` acceptance was about 3006 ms,
+  and a follow-up `/hangup` returned `409 Conflict`.
 
 Current conclusion:
 
@@ -211,6 +267,9 @@ Current conclusion:
 - A powered-on, network-connected S23 can also be woken by FCM when the app
   process is gone and the receiver service is stopped, as long as Android has
   not force-stopped the app.
+- The same app can request ending the foreground call with
+  `TelecomManager.endCall()` when `ANSWER_PHONE_CALLS` is granted. This was
+  confirmed through the LAN `/hangup` endpoint.
 - Direct background `ACTION_CALL` activity launch is not reliable on modern
   Android/Samsung firmware.
 - `TelecomManager.placeCall()` is the working path for this proof of concept.
@@ -224,4 +283,7 @@ Known limits:
   granted permissions, and Samsung/Android foreground service policy.
 - FCM cannot wake the app after the user or system force-stops it. The user must
   launch the app again before FCM delivery can resume.
+- `TelecomManager.endCall()` is available for this test path but is deprecated
+  from Android 10. A production dialer or companion-device implementation should
+  use the appropriate Telecom role/service APIs instead.
 - The token is a development guard only and is not enough for an exposed network.

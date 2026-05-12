@@ -13,7 +13,9 @@ class CallHttpServer(
     private val port: Int,
     private val token: String,
     private val hasCallPermission: () -> Boolean,
+    private val hasHangUpPermission: () -> Boolean,
     private val placeCall: (String) -> Unit,
+    private val hangUpCall: () -> Boolean,
     private val onStatus: (String) -> Unit
 ) {
     private val running = AtomicBoolean(false)
@@ -80,8 +82,8 @@ class CallHttpServer(
                     return
                 }
 
-                if (method != "POST" || path != "/call") {
-                    writeJson(client, "404 Not Found", "Use POST /call.")
+                if (method != "POST" || path !in setOf("/call", "/hangup")) {
+                    writeJson(client, "404 Not Found", "Use POST /call or POST /hangup.")
                     return
                 }
 
@@ -90,24 +92,44 @@ class CallHttpServer(
                     return
                 }
 
-                val body = readBody(reader, headers["content-length"]?.toIntOrNull() ?: 0)
-                val number = parsePhoneNumber(body)
-
-                if (number == null) {
-                    writeJson(client, "400 Bad Request", "Invalid phone number.")
-                    return
+                when (path) {
+                    "/call" -> handleCall(client, reader, headers)
+                    "/hangup" -> handleHangUp(client)
                 }
-
-                if (!hasCallPermission()) {
-                    writeJson(client, "403 Forbidden", "CALL_PHONE permission is not granted.")
-                    return
-                }
-
-                placeCall(number)
-                writeJson(client, "202 Accepted", "Call request accepted.")
             } catch (error: Exception) {
                 writeJson(client, "500 Internal Server Error", error.message ?: "Unknown server error.")
             }
+        }
+    }
+
+    private fun handleCall(client: Socket, reader: BufferedReader, headers: Map<String, String>) {
+        val body = readBody(reader, headers["content-length"]?.toIntOrNull() ?: 0)
+        val number = parsePhoneNumber(body)
+
+        if (number == null) {
+            writeJson(client, "400 Bad Request", "Invalid phone number.")
+            return
+        }
+
+        if (!hasCallPermission()) {
+            writeJson(client, "403 Forbidden", "CALL_PHONE permission is not granted.")
+            return
+        }
+
+        placeCall(number)
+        writeJson(client, "202 Accepted", "Call request accepted.")
+    }
+
+    private fun handleHangUp(client: Socket) {
+        if (!hasHangUpPermission()) {
+            writeJson(client, "403 Forbidden", "ANSWER_PHONE_CALLS permission is not granted.")
+            return
+        }
+
+        if (hangUpCall()) {
+            writeJson(client, "202 Accepted", "Hang up request accepted.")
+        } else {
+            writeJson(client, "409 Conflict", "No active call was ended.")
         }
     }
 

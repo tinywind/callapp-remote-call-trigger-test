@@ -9,6 +9,7 @@ type SavedFormState = {
 
 const STORAGE_KEY = "remote-call-trigger-form";
 const PHONE_NUMBER_PATTERN = /^[+0-9*#]{2,32}$/;
+const DEMO_HANG_UP_DELAY_MS = 3000;
 
 const getElement = <T extends HTMLElement>(selector: string): T => {
   const element = document.querySelector<T>(selector);
@@ -25,12 +26,34 @@ const phoneIpInput = getElement<HTMLInputElement>("#phone-ip");
 const phonePortInput = getElement<HTMLInputElement>("#phone-port");
 const callTokenInput = getElement<HTMLInputElement>("#call-token");
 const phoneNumberInput = getElement<HTMLInputElement>("#phone-number");
+const demoButton = getElement<HTMLButtonElement>("#demo-button");
 const callButton = getElement<HTMLButtonElement>("#call-button");
+const hangUpButton = getElement<HTMLButtonElement>("#hangup-button");
 const statusOutput = getElement<HTMLOutputElement>("#status");
+let demoCountdownId: number | null = null;
+let demoTimeoutId: number | null = null;
 
 const setStatus = (message: string, tone: "idle" | "ok" | "error" = "idle") => {
   statusOutput.textContent = message;
   statusOutput.dataset.tone = tone;
+};
+
+const setBusy = (busy: boolean) => {
+  demoButton.disabled = busy;
+  callButton.disabled = busy;
+  hangUpButton.disabled = busy;
+};
+
+const clearDemoCountdown = () => {
+  if (demoCountdownId !== null) {
+    window.clearInterval(demoCountdownId);
+    demoCountdownId = null;
+  }
+
+  if (demoTimeoutId !== null) {
+    window.clearTimeout(demoTimeoutId);
+    demoTimeoutId = null;
+  }
 };
 
 const readSavedState = (): SavedFormState | null => {
@@ -77,7 +100,7 @@ const normalizeHost = (value: string) =>
     .replace(/^https?:\/\//i, "")
     .replace(/\/.*$/, "");
 
-const buildEndpoint = () => {
+const buildEndpoint = (path: "/call" | "/hangup") => {
   const host = normalizeHost(phoneIpInput.value);
   const port = Number.parseInt(phonePortInput.value.trim(), 10);
 
@@ -89,7 +112,7 @@ const buildEndpoint = () => {
     throw new Error("Enter a valid TCP port.");
   }
 
-  return `http://${host}:${port}/call`;
+  return `http://${host}:${port}${path}`;
 };
 
 const validatePhoneNumber = (number: string) => {
@@ -99,7 +122,7 @@ const validatePhoneNumber = (number: string) => {
 };
 
 const triggerCall = async () => {
-  const endpoint = buildEndpoint();
+  const endpoint = buildEndpoint("/call");
   const number = phoneNumberInput.value.trim();
   const token = callTokenInput.value;
 
@@ -135,12 +158,84 @@ const triggerCall = async () => {
   }
 };
 
+const waitWithCountdown = (durationMs: number) =>
+  new Promise<void>((resolve) => {
+    const startMs = window.performance.now();
+    const update = () => {
+      const elapsedMs = window.performance.now() - startMs;
+      const remainingMs = Math.max(0, durationMs - elapsedMs);
+      setStatus(`Call accepted. Hanging up in ${(remainingMs / 1000).toFixed(1)}s...`);
+    };
+
+    update();
+    demoCountdownId = window.setInterval(update, 100);
+    demoTimeoutId = window.setTimeout(() => {
+      setStatus("Call accepted. Hanging up in 0.0s...");
+      clearDemoCountdown();
+      resolve();
+    }, durationMs);
+  });
+
+const triggerHangUp = async () => {
+  const endpoint = buildEndpoint("/hangup");
+  const token = callTokenInput.value;
+
+  if (!token) {
+    throw new Error("Enter the shared token.");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "X-Call-Token": token
+      },
+      signal: controller.signal
+    });
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+
+    setStatus(`Hang up accepted by ${endpoint}`, "ok");
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
+const runDemo = async () => {
+  setBusy(true);
+  clearDemoCountdown();
+  setStatus("Demo call request sending...");
+
+  try {
+    await triggerCall();
+    saveState();
+    await waitWithCountdown(DEMO_HANG_UP_DELAY_MS);
+    setStatus("Sending automatic hang up request...");
+    await triggerHangUp();
+    setStatus("Demo complete. Call ended after 3 seconds.", "ok");
+  } catch (error) {
+    clearDemoCountdown();
+    const message = error instanceof Error ? error.message : "Unknown error";
+    setStatus(message, "error");
+  } finally {
+    clearDemoCountdown();
+    setBusy(false);
+  }
+};
+
 restoreState();
 
 form.addEventListener("input", saveState);
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  callButton.disabled = true;
+  setBusy(true);
   setStatus("Sending request...");
 
   try {
@@ -150,6 +245,23 @@ form.addEventListener("submit", async (event) => {
     const message = error instanceof Error ? error.message : "Unknown error";
     setStatus(message, "error");
   } finally {
-    callButton.disabled = false;
+    setBusy(false);
+  }
+});
+
+demoButton.addEventListener("click", runDemo);
+
+hangUpButton.addEventListener("click", async () => {
+  setBusy(true);
+  setStatus("Sending hang up request...");
+
+  try {
+    await triggerHangUp();
+    saveState();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    setStatus(message, "error");
+  } finally {
+    setBusy(false);
   }
 });

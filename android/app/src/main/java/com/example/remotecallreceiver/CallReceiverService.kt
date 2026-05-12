@@ -32,6 +32,13 @@ class CallReceiverService : Service() {
                 stopReceiver()
                 stopSelf()
             }
+            ACTION_HANG_UP -> {
+                val port = intent.getIntExtra(EXTRA_PORT, savedPort(this))
+                val token = intent.getStringExtra(EXTRA_TOKEN).orEmpty().ifBlank { savedToken(this) }
+
+                ensureReceiverRunning(port = port, token = token)
+                hangUpCall()
+            }
             else -> {
                 val port = intent?.getIntExtra(EXTRA_PORT, savedPort(this)) ?: savedPort(this)
                 val token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty().ifBlank { savedToken(this) }
@@ -64,7 +71,9 @@ class CallReceiverService : Service() {
             port = port,
             token = token,
             hasCallPermission = ::hasCallPermission,
+            hasHangUpPermission = ::hasHangUpPermission,
             placeCall = ::placeCall,
+            hangUpCall = ::hangUpCall,
             onStatus = ::setStatus
         )
 
@@ -72,6 +81,16 @@ class CallReceiverService : Service() {
         server.start()
         setRunning(true)
         setStatus("Listening on http://${findLocalIpv4Address()}:$port/call")
+        updateNotification("Listening on port $port")
+    }
+
+    private fun ensureReceiverRunning(port: Int, token: String) {
+        if (callServer == null) {
+            startReceiver(port = port, token = token)
+            return
+        }
+
+        saveConfig(port, token)
         updateNotification("Listening on port $port")
     }
 
@@ -97,9 +116,41 @@ class CallReceiverService : Service() {
         }
     }
 
+    @Suppress("DEPRECATION")
+    private fun hangUpCall(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            setStatus("Hang up requires Android 9 or newer.")
+            return false
+        }
+
+        if (!hasHangUpPermission()) {
+            setStatus("Answer phone calls permission is required before hanging up calls.")
+            return false
+        }
+
+        return try {
+            val ended = getSystemService(TelecomManager::class.java).endCall()
+            setStatus(
+                if (ended) {
+                    "TelecomManager.endCall ended the active call."
+                } else {
+                    "TelecomManager.endCall found no active call to end."
+                }
+            )
+            ended
+        } catch (error: RuntimeException) {
+            setStatus("Failed to hang up call: ${error.message}")
+            false
+        }
+    }
+
     private fun hasCallPermission(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasHangUpPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
+            checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED
 
     private fun startInForeground(contentText: String) {
         val notification = buildNotification(contentText)
@@ -200,6 +251,7 @@ class CallReceiverService : Service() {
 
     companion object {
         const val ACTION_STOP = "com.example.remotecallreceiver.action.STOP"
+        const val ACTION_HANG_UP = "com.example.remotecallreceiver.action.HANG_UP"
         const val EXTRA_PORT = "port"
         const val EXTRA_TOKEN = "token"
         const val EXTRA_NUMBER = "number"
@@ -240,6 +292,26 @@ class CallReceiverService : Service() {
         fun stop(context: Context) {
             val intent = Intent(context, CallReceiverService::class.java).setAction(ACTION_STOP)
             context.startService(intent)
+        }
+
+        fun hangUp(context: Context, port: Int = savedPort(context), token: String = savedToken(context)): Boolean {
+            val intent = Intent(context, CallReceiverService::class.java).apply {
+                action = ACTION_HANG_UP
+                putExtra(EXTRA_PORT, port)
+                putExtra(EXTRA_TOKEN, token)
+            }
+
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                true
+            } catch (error: RuntimeException) {
+                setStoredStatus(context, "Failed to start hang up request: ${error.message}")
+                false
+            }
         }
 
         fun savedPort(context: Context): Int =
