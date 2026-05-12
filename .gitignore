@@ -1,5 +1,6 @@
 /.tmp/
 /.playwright-mcp/
+/.serena/
 
 # Desktop app
 /desktop/node_modules/
@@ -11,7 +12,10 @@
 /android/.gradle/
 /android/build/
 /android/app/build/
+/android/app/google-services.json
+/android/app/src/**/google-services.json
 /android/local.properties
+/firebase-service-account*.json
 
 # Editors and OS files
 .idea/

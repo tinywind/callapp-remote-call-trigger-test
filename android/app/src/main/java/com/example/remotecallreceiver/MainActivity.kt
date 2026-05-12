@@ -18,6 +18,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.google.firebase.messaging.FirebaseMessaging
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -103,6 +104,11 @@ class MainActivity : Activity() {
             setOnClickListener { requestBatteryException() }
         }
 
+        val fcmButton = Button(this).apply {
+            text = "Show FCM Token"
+            setOnClickListener { requestFcmToken() }
+        }
+
         toggleButton = Button(this).apply {
             text = "Start Receiver"
             setOnClickListener {
@@ -127,6 +133,7 @@ class MainActivity : Activity() {
         root.addView(tokenInput)
         root.addView(permissionButton)
         root.addView(batteryButton)
+        root.addView(fcmButton)
         root.addView(toggleButton)
         root.addView(statusText)
 
@@ -147,18 +154,13 @@ class MainActivity : Activity() {
             return
         }
 
-        val intent = Intent(this, CallReceiverService::class.java).apply {
-            putExtra(CallReceiverService.EXTRA_PORT, port)
-            putExtra(CallReceiverService.EXTRA_TOKEN, token)
-        }
-        startForegroundService(intent)
+        CallReceiverService.start(this, port, token)
         setStatus("Starting receiver...")
         renderReceiverState()
     }
 
     private fun stopReceiver() {
-        val intent = Intent(this, CallReceiverService::class.java).setAction(CallReceiverService.ACTION_STOP)
-        startService(intent)
+        CallReceiverService.stop(this)
         setStatus("Stopping receiver...")
         renderReceiverState()
     }
@@ -196,6 +198,22 @@ class MainActivity : Activity() {
             data = Uri.parse("package:$packageName")
         }
         startActivity(intent)
+    }
+
+    private fun requestFcmToken() {
+        try {
+            FirebaseMessaging.getInstance().token
+                .addOnCompleteListener { task ->
+                    if (!task.isSuccessful) {
+                        setStatus("FCM token unavailable: ${task.exception?.message}")
+                        return@addOnCompleteListener
+                    }
+
+                    setStatus("FCM token: ${task.result}")
+                }
+        } catch (error: IllegalStateException) {
+            setStatus("FCM is not configured. Add android/app/google-services.json.")
+        }
     }
 
     private fun renderReceiverState() {

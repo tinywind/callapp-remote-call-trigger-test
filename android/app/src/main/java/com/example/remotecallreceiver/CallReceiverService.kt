@@ -32,10 +32,17 @@ class CallReceiverService : Service() {
                 stopReceiver()
                 stopSelf()
             }
-            else -> startReceiver(
-                port = intent?.getIntExtra(EXTRA_PORT, DEFAULT_PORT) ?: DEFAULT_PORT,
-                token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty().ifBlank { DEFAULT_TOKEN }
-            )
+            else -> {
+                val port = intent?.getIntExtra(EXTRA_PORT, savedPort(this)) ?: savedPort(this)
+                val token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty().ifBlank { savedToken(this) }
+                val number = intent?.getStringExtra(EXTRA_NUMBER)?.trim().orEmpty()
+
+                startReceiver(port = port, token = token)
+
+                if (number.isNotBlank()) {
+                    placeCall(number)
+                }
+            }
         }
 
         return START_STICKY
@@ -51,6 +58,7 @@ class CallReceiverService : Service() {
     private fun startReceiver(port: Int, token: String) {
         startInForeground("Starting receiver on port $port...")
         callServer?.stop()
+        saveConfig(port, token)
 
         val server = CallHttpServer(
             port = port,
@@ -159,6 +167,14 @@ class CallReceiverService : Service() {
             .apply()
     }
 
+    private fun saveConfig(port: Int, token: String) {
+        getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_PORT, port)
+            .putString(KEY_TOKEN, token)
+            .apply()
+    }
+
     private fun findLocalIpv4Address(): String {
         return try {
             val interfaces = NetworkInterface.getNetworkInterfaces()
@@ -186,13 +202,61 @@ class CallReceiverService : Service() {
         const val ACTION_STOP = "com.example.remotecallreceiver.action.STOP"
         const val EXTRA_PORT = "port"
         const val EXTRA_TOKEN = "token"
+        const val EXTRA_NUMBER = "number"
         const val DEFAULT_PORT = 8088
         const val DEFAULT_TOKEN = "dev-token"
         const val PREFERENCES_NAME = "receiver-state"
         const val KEY_STATUS = "status"
         const val KEY_RUNNING = "running"
+        const val KEY_PORT = "port"
+        const val KEY_TOKEN = "token"
 
         private const val NOTIFICATION_CHANNEL_ID = "remote-call-receiver"
         private const val NOTIFICATION_ID = 1002
+
+        fun start(context: Context, port: Int = savedPort(context), token: String = savedToken(context), number: String? = null): Boolean {
+            val intent = Intent(context, CallReceiverService::class.java).apply {
+                putExtra(EXTRA_PORT, port)
+                putExtra(EXTRA_TOKEN, token)
+
+                if (!number.isNullOrBlank()) {
+                    putExtra(EXTRA_NUMBER, number)
+                }
+            }
+
+            return try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                true
+            } catch (error: RuntimeException) {
+                setStoredStatus(context, "Failed to start receiver service: ${error.message}")
+                false
+            }
+        }
+
+        fun stop(context: Context) {
+            val intent = Intent(context, CallReceiverService::class.java).setAction(ACTION_STOP)
+            context.startService(intent)
+        }
+
+        fun savedPort(context: Context): Int =
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .getInt(KEY_PORT, DEFAULT_PORT)
+
+        fun savedToken(context: Context): String =
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_TOKEN, DEFAULT_TOKEN)
+                .orEmpty()
+                .ifBlank { DEFAULT_TOKEN }
+
+        fun setStoredStatus(context: Context, message: String) {
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_STATUS, message)
+                .apply()
+        }
     }
 }
