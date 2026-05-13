@@ -61,6 +61,17 @@
             />
           </label>
 
+          <label>
+            SMS Message
+            <textarea
+              id="sms-message"
+              name="smsMessage"
+              rows="4"
+              autocomplete="off"
+              placeholder="Text message to send"
+            ></textarea>
+          </label>
+
           <button id="demo-button" class="demo-button" type="button">
             Demo: Call, Hang Up After 3s
           </button>
@@ -68,6 +79,11 @@
           <div class="button-row" aria-label="Manual controls">
             <button id="call-button" type="submit">Trigger Call</button>
             <button id="hangup-button" type="button">Hang Up</button>
+          </div>
+
+          <div class="button-row" aria-label="SMS controls">
+            <button id="sms-button" class="sms-button" type="button">Send SMS</button>
+            <button id="sms-backup-button" class="backup-button" type="button">Backup SMS</button>
           </div>
         </form>
 

@@ -10,11 +10,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.telephony.SmsManager
 import android.telecom.TelecomManager
+import org.json.JSONArray
+import org.json.JSONObject
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -72,8 +76,12 @@ class CallReceiverService : Service() {
             token = token,
             hasCallPermission = ::hasCallPermission,
             hasHangUpPermission = ::hasHangUpPermission,
+            hasSendSmsPermission = ::hasSendSmsPermission,
+            hasReadSmsPermission = ::hasReadSmsPermission,
             placeCall = ::placeCall,
             hangUpCall = ::hangUpCall,
+            sendSms = ::sendSms,
+            backupSms = ::backupSms,
             onStatus = ::setStatus
         )
 
@@ -152,6 +160,118 @@ class CallReceiverService : Service() {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.P ||
             checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED
 
+    private fun sendSms(number: String, message: String) {
+        if (!hasSendSmsPermission()) {
+            setStatus("Send SMS permission is required before sending messages.")
+            return
+        }
+
+        try {
+            val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                getSystemService(SmsManager::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                SmsManager.getDefault()
+            }
+            val parts = smsManager.divideMessage(message)
+            val sentIntents = ArrayList<PendingIntent>()
+            val requestCodeBase = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
+
+            parts.forEachIndexed { index, _ ->
+                sentIntents += createSmsSentIntent(
+                    number = number,
+                    partIndex = index,
+                    partCount = parts.size,
+                    requestCode = requestCodeBase + index
+                )
+            }
+
+            if (parts.size > 1) {
+                smsManager.sendMultipartTextMessage(number, null, parts, sentIntents, null)
+            } else {
+                smsManager.sendTextMessage(number, null, message, sentIntents.firstOrNull(), null)
+            }
+
+            setStatus("SMS send requested for $number. Waiting for radio result.")
+        } catch (error: RuntimeException) {
+            setStatus("Failed to send SMS: ${error.message}")
+        }
+    }
+
+    private fun createSmsSentIntent(
+        number: String,
+        partIndex: Int,
+        partCount: Int,
+        requestCode: Int
+    ): PendingIntent {
+        val intent = Intent(this, SmsResultReceiver::class.java).apply {
+            action = SmsResultReceiver.ACTION_SMS_SENT
+            putExtra(SmsResultReceiver.EXTRA_NUMBER, number)
+            putExtra(SmsResultReceiver.EXTRA_PART_INDEX, partIndex)
+            putExtra(SmsResultReceiver.EXTRA_PART_COUNT, partCount)
+        }
+
+        return PendingIntent.getBroadcast(
+            this,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun backupSms(): JSONObject {
+        if (!hasReadSmsPermission()) {
+            setStatus("Read SMS permission is required before backing up messages.")
+            return JSONObject()
+                .put("count", 0)
+                .put("messages", JSONArray())
+        }
+
+        val messages = JSONArray()
+        val projection = arrayOf("_id", "thread_id", "address", "person", "date", "date_sent", "read", "status", "type", "body", "service_center")
+
+        contentResolver.query(
+            Uri.parse("content://sms"),
+            projection,
+            null,
+            null,
+            "date DESC"
+        )?.use { cursor ->
+            while (cursor.moveToNext()) {
+                messages.put(
+                    JSONObject()
+                        .put("id", cursor.getLongValue("_id"))
+                        .put("threadId", cursor.getLongValue("thread_id"))
+                        .put("address", cursor.getStringValue("address"))
+                        .put("person", cursor.getStringValue("person"))
+                        .put("date", cursor.getLongValue("date"))
+                        .put("dateSent", cursor.getLongValue("date_sent"))
+                        .put("read", cursor.getIntValue("read"))
+                        .put("status", cursor.getIntValue("status"))
+                        .put("type", cursor.getIntValue("type"))
+                        .put("typeName", smsTypeName(cursor.getIntValue("type")))
+                        .put("body", cursor.getStringValue("body"))
+                        .put("serviceCenter", cursor.getStringValue("service_center"))
+                )
+            }
+        }
+
+        setStatus("SMS backup exported ${messages.length()} message(s).")
+
+        return JSONObject()
+            .put("exportedAt", System.currentTimeMillis())
+            .put("count", messages.length())
+            .put("messages", messages)
+    }
+
+    private fun hasSendSmsPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+            checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasReadSmsPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+            checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+
     private fun startInForeground(contentText: String) {
         val notification = buildNotification(contentText)
 
@@ -228,26 +348,72 @@ class CallReceiverService : Service() {
 
     private fun findLocalIpv4Address(): String {
         return try {
+            val siteLocalAddresses = mutableListOf<String>()
+            val fallbackAddresses = mutableListOf<String>()
             val interfaces = NetworkInterface.getNetworkInterfaces()
 
             while (interfaces.hasMoreElements()) {
                 val networkInterface = interfaces.nextElement()
+
+                if (!networkInterface.isUp || networkInterface.isLoopback) {
+                    continue
+                }
+
                 val addresses = networkInterface.inetAddresses
 
                 while (addresses.hasMoreElements()) {
                     val address = addresses.nextElement()
 
                     if (!address.isLoopbackAddress && address is Inet4Address) {
-                        return address.hostAddress ?: "unknown"
+                        val hostAddress = address.hostAddress ?: continue
+
+                        if (address.isSiteLocalAddress && networkInterface.name.startsWith("wlan")) {
+                            return hostAddress
+                        }
+
+                        if (address.isSiteLocalAddress) {
+                            siteLocalAddresses += hostAddress
+                        } else {
+                            fallbackAddresses += hostAddress
+                        }
                     }
                 }
             }
 
-            "unknown"
+            siteLocalAddresses.firstOrNull() ?: fallbackAddresses.firstOrNull() ?: "unknown"
         } catch (_: Exception) {
             "unknown"
         }
     }
+
+    private fun smsTypeName(type: Int): String =
+        when (type) {
+            1 -> "inbox"
+            2 -> "sent"
+            3 -> "draft"
+            4 -> "outbox"
+            5 -> "failed"
+            6 -> "queued"
+            else -> "unknown"
+        }
+
+    private fun Cursor.getStringValue(columnName: String): String =
+        getColumnIndex(columnName)
+            .takeIf { it >= 0 }
+            ?.let { getString(it) }
+            .orEmpty()
+
+    private fun Cursor.getLongValue(columnName: String): Long =
+        getColumnIndex(columnName)
+            .takeIf { it >= 0 }
+            ?.let { getLong(it) }
+            ?: 0L
+
+    private fun Cursor.getIntValue(columnName: String): Int =
+        getColumnIndex(columnName)
+            .takeIf { it >= 0 }
+            ?.let { getInt(it) }
+            ?: 0
 
     companion object {
         const val ACTION_STOP = "com.example.remotecallreceiver.action.STOP"

@@ -18,7 +18,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -66,7 +67,8 @@ label {
   font-weight: 600;
 }
 
-input {
+input,
+textarea {
   width: 100%;
   border: 1px solid #b8c4cf;
   border-radius: 6px;
@@ -75,7 +77,12 @@ input {
   background: #ffffff;
 }
 
-input:focus {
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus {
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
   outline: none;
@@ -105,6 +112,14 @@ button {
 
 #hangup-button {
   background: #b42318;
+}
+
+.sms-button {
+  background: #5c5f13;
+}
+
+.backup-button {
+  background: #374151;
 }
 
 button:disabled {

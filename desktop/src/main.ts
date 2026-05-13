@@ -5,6 +5,7 @@ type SavedFormState = {
   phonePort: string;
   callToken: string;
   phoneNumber: string;
+  smsMessage: string;
 };
 
 const STORAGE_KEY = "remote-call-trigger-form";
@@ -26,9 +27,12 @@ const phoneIpInput = getElement<HTMLInputElement>("#phone-ip");
 const phonePortInput = getElement<HTMLInputElement>("#phone-port");
 const callTokenInput = getElement<HTMLInputElement>("#call-token");
 const phoneNumberInput = getElement<HTMLInputElement>("#phone-number");
+const smsMessageInput = getElement<HTMLTextAreaElement>("#sms-message");
 const demoButton = getElement<HTMLButtonElement>("#demo-button");
 const callButton = getElement<HTMLButtonElement>("#call-button");
 const hangUpButton = getElement<HTMLButtonElement>("#hangup-button");
+const smsButton = getElement<HTMLButtonElement>("#sms-button");
+const smsBackupButton = getElement<HTMLButtonElement>("#sms-backup-button");
 const statusOutput = getElement<HTMLOutputElement>("#status");
 let demoCountdownId: number | null = null;
 let demoTimeoutId: number | null = null;
@@ -42,6 +46,8 @@ const setBusy = (busy: boolean) => {
   demoButton.disabled = busy;
   callButton.disabled = busy;
   hangUpButton.disabled = busy;
+  smsButton.disabled = busy;
+  smsBackupButton.disabled = busy;
 };
 
 const clearDemoCountdown = () => {
@@ -75,7 +81,8 @@ const saveState = () => {
     phoneIp: phoneIpInput.value.trim(),
     phonePort: phonePortInput.value.trim(),
     callToken: callTokenInput.value,
-    phoneNumber: phoneNumberInput.value.trim()
+    phoneNumber: phoneNumberInput.value.trim(),
+    smsMessage: smsMessageInput.value
   };
 
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -92,6 +99,7 @@ const restoreState = () => {
   phonePortInput.value = state.phonePort;
   callTokenInput.value = state.callToken;
   phoneNumberInput.value = state.phoneNumber;
+  smsMessageInput.value = state.smsMessage || "";
 };
 
 const normalizeHost = (value: string) =>
@@ -100,7 +108,7 @@ const normalizeHost = (value: string) =>
     .replace(/^https?:\/\//i, "")
     .replace(/\/.*$/, "");
 
-const buildEndpoint = (path: "/call" | "/hangup") => {
+const buildEndpoint = (path: "/call" | "/hangup" | "/sms/send" | "/sms/backup") => {
   const host = normalizeHost(phoneIpInput.value);
   const port = Number.parseInt(phonePortInput.value.trim(), 10);
 
@@ -208,6 +216,92 @@ const triggerHangUp = async () => {
   }
 };
 
+const triggerSms = async () => {
+  const endpoint = buildEndpoint("/sms/send");
+  const number = phoneNumberInput.value.trim();
+  const message = smsMessageInput.value;
+  const token = callTokenInput.value;
+
+  validatePhoneNumber(number);
+
+  if (!token) {
+    throw new Error("Enter the shared token.");
+  }
+
+  if (!message.trim()) {
+    throw new Error("Enter an SMS message.");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Call-Token": token
+      },
+      body: JSON.stringify({ number, message }),
+      signal: controller.signal
+    });
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+
+    setStatus(`SMS accepted by ${endpoint}`, "ok");
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
+const backupSms = async () => {
+  const endpoint = buildEndpoint("/sms/backup");
+  const token = callTokenInput.value;
+
+  if (!token) {
+    throw new Error("Enter the shared token.");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "X-Call-Token": token
+      },
+      signal: controller.signal
+    });
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+
+    const backup = JSON.parse(text) as { count?: number };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+    link.href = url;
+    link.download = `sms-backup-${timestamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    setStatus(`Downloaded SMS backup with ${backup.count ?? 0} message(s).`, "ok");
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
 const runDemo = async () => {
   setBusy(true);
   clearDemoCountdown();
@@ -257,6 +351,36 @@ hangUpButton.addEventListener("click", async () => {
 
   try {
     await triggerHangUp();
+    saveState();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    setStatus(message, "error");
+  } finally {
+    setBusy(false);
+  }
+});
+
+smsButton.addEventListener("click", async () => {
+  setBusy(true);
+  setStatus("Sending SMS request...");
+
+  try {
+    await triggerSms();
+    saveState();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    setStatus(message, "error");
+  } finally {
+    setBusy(false);
+  }
+});
+
+smsBackupButton.addEventListener("click", async () => {
+  setBusy(true);
+  setStatus("Downloading SMS backup...");
+
+  try {
+    await backupSms();
     saveState();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

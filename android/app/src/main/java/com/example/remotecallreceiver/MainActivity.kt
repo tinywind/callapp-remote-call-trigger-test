@@ -178,6 +178,14 @@ class MainActivity : Activity() {
             permissions += Manifest.permission.ANSWER_PHONE_CALLS
         }
 
+        if (!hasPermission(Manifest.permission.SEND_SMS)) {
+            permissions += Manifest.permission.SEND_SMS
+        }
+
+        if (!hasPermission(Manifest.permission.READ_SMS)) {
+            permissions += Manifest.permission.READ_SMS
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             !hasPermission(Manifest.permission.POST_NOTIFICATIONS)
         ) {
@@ -242,22 +250,39 @@ class MainActivity : Activity() {
 
     private fun findLocalIpv4Address(): String {
         return try {
+            val siteLocalAddresses = mutableListOf<String>()
+            val fallbackAddresses = mutableListOf<String>()
             val interfaces = NetworkInterface.getNetworkInterfaces()
 
             while (interfaces.hasMoreElements()) {
                 val networkInterface = interfaces.nextElement()
+
+                if (!networkInterface.isUp || networkInterface.isLoopback) {
+                    continue
+                }
+
                 val addresses = networkInterface.inetAddresses
 
                 while (addresses.hasMoreElements()) {
                     val address = addresses.nextElement()
 
                     if (!address.isLoopbackAddress && address is Inet4Address) {
-                        return address.hostAddress ?: "unknown"
+                        val hostAddress = address.hostAddress ?: continue
+
+                        if (address.isSiteLocalAddress && networkInterface.name.startsWith("wlan")) {
+                            return hostAddress
+                        }
+
+                        if (address.isSiteLocalAddress) {
+                            siteLocalAddresses += hostAddress
+                        } else {
+                            fallbackAddresses += hostAddress
+                        }
                     }
                 }
             }
 
-            "unknown"
+            siteLocalAddresses.firstOrNull() ?: fallbackAddresses.firstOrNull() ?: "unknown"
         } catch (_: Exception) {
             "unknown"
         }

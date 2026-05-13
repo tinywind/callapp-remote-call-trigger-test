@@ -5,16 +5,18 @@ call from a desktop app through an Android phone on the same network.
 
 Current flow:
 
-1. The desktop Tauri app sends `POST /call` or `POST /hangup` to the Android
-   phone IP.
+1. The desktop Tauri app sends `POST /call`, `POST /hangup`, `POST /sms/send`,
+   or `POST /sms/backup` to the Android phone IP.
 2. The Android foreground service validates the shared token and validates the
    phone number when the request places a call.
 3. The Android service requests an outgoing call through
    `TelecomManager.placeCall()` or requests ending the active call through
    `TelecomManager.endCall()`.
-4. The service stays alive through a foreground notification and a battery
+4. The Android service can send SMS through `SmsManager` and export SMS rows
+   from the phone SMS provider as a JSON backup for the PC.
+5. The service stays alive through a foreground notification and a battery
    optimization whitelist during local testing.
-5. If the LAN receiver is not running, FCM high-priority data messages can ask
+6. If the LAN receiver is not running, FCM high-priority data messages can ask
    the app to start the foreground service and place the call.
 
 This is for local testing only. It does not replace a dialer, Phone Link, or a
@@ -26,6 +28,8 @@ production call-control integration.
   permission is granted.
 - The Android app can request ending the active call after the
   `ANSWER_PHONE_CALLS` permission is granted.
+- The Android app can send SMS after `SEND_SMS` is granted and export SMS
+  backup data after `READ_SMS` is granted.
 - Test only with numbers you control.
 - Do not use emergency, premium-rate, or third-party numbers for validation.
 - Keep the Android foreground service notification running during testing.
@@ -53,6 +57,8 @@ Default receiver settings:
 - Token: `dev-token`
 - Endpoint: `POST http://PHONE_IP:8088/call`
 - Hang up endpoint: `POST http://PHONE_IP:8088/hangup`
+- Send SMS endpoint: `POST http://PHONE_IP:8088/sms/send`
+- SMS backup endpoint: `POST http://PHONE_IP:8088/sms/backup`
 
 The request body must be JSON:
 
@@ -76,6 +82,28 @@ Invoke-RestMethod `
   -Method Post `
   -Uri "http://PHONE_IP:8088/hangup" `
   -Headers @{ "X-Call-Token" = "dev-token" }
+```
+
+The SMS send request uses the same token header:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://PHONE_IP:8088/sms/send" `
+  -Headers @{ "X-Call-Token" = "dev-token" } `
+  -ContentType "application/json" `
+  -Body '{"number":"+821012345678","message":"hello from pc"}'
+```
+
+The SMS backup request returns JSON with every row exposed by the phone SMS
+provider:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://PHONE_IP:8088/sms/backup" `
+  -Headers @{ "X-Call-Token" = "dev-token" } `
+  -OutFile ".\sms-backup.json"
 ```
 
 The receiver can also be started over ADB for validation:
@@ -181,7 +209,8 @@ npm run tauri:dev
 Enter the Samsung phone IP, port, token, and target number. The desktop app can
 trigger a call, send a manual hang up request, or run the demo action that
 places the call and sends hang up three seconds after the call request is
-accepted.
+accepted. It can also send an SMS to the number field and download a JSON SMS
+backup from the phone.
 
 ## Manual HTTP Check
 
@@ -258,6 +287,30 @@ Completed checks:
 - In that desktop demo run, `/call` returned `202 Accepted`, `/hangup` returned
   `202 Accepted`, the measured gap after `/call` acceptance was about 3006 ms,
   and a follow-up `/hangup` returned `409 Conflict`.
+- SMS send support was added through `SmsManager` with the `SEND_SMS` runtime
+  permission.
+- SMS backup support was added through the Android SMS provider with the
+  `READ_SMS` runtime permission.
+- The first SMS smoke test used `192.168.8.107:43769`, which was later
+  confirmed through ADB as `TB322FC` / `HA25WQ21`, not the S23.
+- The correct S23 target was confirmed as `SM-S911N` / `R3CW30M59WF` with Wi-Fi
+  IP `192.168.8.246`.
+- The Android debug APK was rebuilt and installed on the wirelessly connected
+  S23 after the SMS changes.
+- The Android receiver screen now reports the Wi-Fi IP as
+  `192.168.8.246`.
+- Direct LAN `POST /sms/backup` returned `200 OK` JSON from the S23 receiver
+  with `count=7283`.
+- SMS send result tracking now records the Android radio result through a
+  `PendingIntent` broadcast receiver instead of only reporting that
+  `SmsManager` was called.
+- With the Android Activity in the background and Samsung Launcher focused,
+  `POST /sms/send` to recipient `01094387376` returned `202 Accepted`.
+- In that background SMS test, the Android radio result callback recorded
+  `SMS sent to 01094387376.` in the receiver state.
+- After that send, direct LAN `POST /sms/backup` returned `200 OK` JSON from
+  the S23 receiver with `count=7285`, and the latest row for `01094387376`
+  contained `remote sms background test 2026-05-13 17:03 KST`.
 
 Current conclusion:
 
@@ -270,6 +323,11 @@ Current conclusion:
 - The same app can request ending the foreground call with
   `TelecomManager.endCall()` when `ANSWER_PHONE_CALLS` is granted. This was
   confirmed through the LAN `/hangup` endpoint.
+- The same app can request SMS sending and SMS JSON backup from the desktop
+  app when `SEND_SMS` and `READ_SMS` are granted.
+- SMS sending and backup were confirmed while the Android Activity was in the
+  background, as long as `CallReceiverService` remained active as a foreground
+  service.
 - Direct background `ACTION_CALL` activity launch is not reliable on modern
   Android/Samsung firmware.
 - `TelecomManager.placeCall()` is the working path for this proof of concept.

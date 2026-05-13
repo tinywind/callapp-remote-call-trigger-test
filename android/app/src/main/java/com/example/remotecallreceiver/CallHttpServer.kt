@@ -14,8 +14,12 @@ class CallHttpServer(
     private val token: String,
     private val hasCallPermission: () -> Boolean,
     private val hasHangUpPermission: () -> Boolean,
+    private val hasSendSmsPermission: () -> Boolean,
+    private val hasReadSmsPermission: () -> Boolean,
     private val placeCall: (String) -> Unit,
     private val hangUpCall: () -> Boolean,
+    private val sendSms: (String, String) -> Unit,
+    private val backupSms: () -> JSONObject,
     private val onStatus: (String) -> Unit
 ) {
     private val running = AtomicBoolean(false)
@@ -82,8 +86,8 @@ class CallHttpServer(
                     return
                 }
 
-                if (method != "POST" || path !in setOf("/call", "/hangup")) {
-                    writeJson(client, "404 Not Found", "Use POST /call or POST /hangup.")
+                if (method != "POST" || path !in SUPPORTED_PATHS) {
+                    writeJson(client, "404 Not Found", "Use POST /call, /hangup, /sms/send, or /sms/backup.")
                     return
                 }
 
@@ -95,6 +99,8 @@ class CallHttpServer(
                 when (path) {
                     "/call" -> handleCall(client, reader, headers)
                     "/hangup" -> handleHangUp(client)
+                    "/sms/send" -> handleSendSms(client, reader, headers)
+                    "/sms/backup" -> handleSmsBackup(client)
                 }
             } catch (error: Exception) {
                 writeJson(client, "500 Internal Server Error", error.message ?: "Unknown server error.")
@@ -131,6 +137,33 @@ class CallHttpServer(
         } else {
             writeJson(client, "409 Conflict", "No active call was ended.")
         }
+    }
+
+    private fun handleSendSms(client: Socket, reader: BufferedReader, headers: Map<String, String>) {
+        val body = readBody(reader, headers["content-length"]?.toIntOrNull() ?: 0)
+        val smsRequest = parseSmsRequest(body)
+
+        if (smsRequest == null) {
+            writeJson(client, "400 Bad Request", "Invalid SMS number or message.")
+            return
+        }
+
+        if (!hasSendSmsPermission()) {
+            writeJson(client, "403 Forbidden", "SEND_SMS permission is not granted.")
+            return
+        }
+
+        sendSms(smsRequest.number, smsRequest.message)
+        writeJson(client, "202 Accepted", "SMS send request accepted.")
+    }
+
+    private fun handleSmsBackup(client: Socket) {
+        if (!hasReadSmsPermission()) {
+            writeJson(client, "403 Forbidden", "READ_SMS permission is not granted.")
+            return
+        }
+
+        writeJsonBody(client, "200 OK", backupSms().toString())
     }
 
     private fun readHeaders(reader: BufferedReader): Map<String, String> {
@@ -186,12 +219,33 @@ class CallHttpServer(
         return number.takeIf { PHONE_NUMBER_PATTERN.matches(it) }
     }
 
+    private fun parseSmsRequest(body: String): SmsRequest? {
+        val json = try {
+            JSONObject(body)
+        } catch (_: Exception) {
+            return null
+        }
+
+        val number = json.optString("number").trim()
+        val message = json.optString("message")
+
+        if (!PHONE_NUMBER_PATTERN.matches(number) || message.isBlank()) {
+            return null
+        }
+
+        return SmsRequest(number = number, message = message)
+    }
+
     private fun writeJson(socket: Socket, status: String, message: String) {
         val body = if (message.isBlank()) {
             ""
         } else {
             JSONObject().put("message", message).toString()
         }
+        writeJsonBody(socket, status, body)
+    }
+
+    private fun writeJsonBody(socket: Socket, status: String, body: String) {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
         val response = buildString {
             append("HTTP/1.1 ").append(status).append("\r\n")
@@ -212,6 +266,12 @@ class CallHttpServer(
     }
 
     private companion object {
+        val SUPPORTED_PATHS = setOf("/call", "/hangup", "/sms/send", "/sms/backup")
         val PHONE_NUMBER_PATTERN = Regex("""^[+0-9*#]{2,32}$""")
     }
+
+    private data class SmsRequest(
+        val number: String,
+        val message: String
+    )
 }
