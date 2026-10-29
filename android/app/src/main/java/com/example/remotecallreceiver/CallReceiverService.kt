@@ -119,6 +119,8 @@ class CallReceiverService : Service() {
             val telecomManager = getSystemService(TelecomManager::class.java)
             telecomManager.placeCall(Uri.fromParts("tel", number, null), Bundle.EMPTY)
             setStatus("TelecomManager.placeCall requested for $number.")
+        } catch (error: SecurityException) {
+            setStatus("Failed to place call: ${error.message}")
         } catch (error: RuntimeException) {
             setStatus("Failed to place call: ${error.message}")
         }
@@ -146,6 +148,9 @@ class CallReceiverService : Service() {
                 }
             )
             ended
+        } catch (error: SecurityException) {
+            setStatus("Failed to hang up call: ${error.message}")
+            false
         } catch (error: RuntimeException) {
             setStatus("Failed to hang up call: ${error.message}")
             false
