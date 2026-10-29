@@ -41,8 +41,9 @@ production call-control integration.
   outside the repository and point `GOOGLE_APPLICATION_CREDENTIALS` to that
   local path.
 
-- The desktop token stays in the current window and is never saved in browser
-  storage; loading an older saved form removes its token. See [security
+- The desktop token, phone number and SMS message stay in the current window
+  and are never saved in browser storage. Loading an older saved form removes
+  these private fields while preserving the receiver IP and port. See [security
   verification](SECURITY_CHECKS.md).
 
 ## Project Layout
@@ -210,10 +211,10 @@ node tools/send-fcm-call.mjs `
 
 ## Desktop Client
 
-From `desktop/`, install dependencies and run the Tauri app:
+Use Node 22.22.2, 24.15 or newer supported release for the desktop toolchain. From `desktop/`, install the locked dependencies and run the Tauri app:
 
 ```powershell
-npm install
+npm ci
 npm run tauri:dev
 ```
 

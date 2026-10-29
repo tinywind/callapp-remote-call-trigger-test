@@ -3,8 +3,6 @@ import "./styles.css";
 type SavedFormState = {
   phoneIp: string;
   phonePort: string;
-  phoneNumber: string;
-  smsMessage: string;
 };
 
 const STORAGE_KEY = "remote-call-trigger-form";
@@ -72,9 +70,7 @@ const readSavedState = (): SavedFormState | null => {
     const state = JSON.parse(raw) as SavedFormState;
     const saved: SavedFormState = {
       phoneIp: state.phoneIp,
-      phonePort: state.phonePort,
-      phoneNumber: state.phoneNumber,
-      smsMessage: state.smsMessage || ""
+      phonePort: state.phonePort
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     return saved;
@@ -86,9 +82,7 @@ const readSavedState = (): SavedFormState | null => {
 const saveState = () => {
   const state: SavedFormState = {
     phoneIp: phoneIpInput.value.trim(),
-    phonePort: phonePortInput.value.trim(),
-    phoneNumber: phoneNumberInput.value.trim(),
-    smsMessage: smsMessageInput.value
+    phonePort: phonePortInput.value.trim()
   };
 
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -103,8 +97,6 @@ const restoreState = () => {
 
   phoneIpInput.value = state.phoneIp;
   phonePortInput.value = state.phonePort;
-  phoneNumberInput.value = state.phoneNumber;
-  smsMessageInput.value = state.smsMessage || "";
 };
 
 const normalizeHost = (value: string) =>

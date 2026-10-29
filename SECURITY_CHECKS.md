@@ -1,10 +1,8 @@
 # Security verification
 
-The desktop shared call token stays in the current form only. It is masked and never saved in localStorage. Loading saved state removes a legacy token while preserving the other form fields. Reloading clears the token and requires it to be entered again.
+The desktop shared call token, phone number and SMS message stay in the current form only. They are never saved in localStorage. Loading saved state removes these legacy private fields while preserving the receiver IP and port. The token is masked; reloading requires the private fields to be entered again.
 
-To verify this boundary, load the local desktop page, seed `remote-call-trigger-form` with a legacy `callToken` and the other form fields, and reload. The token input must be empty and the saved JSON must omit `callToken`. Enter a new token: it stays in the input and remains absent from saved JSON. Reload once more and confirm it is empty. Do not submit a call or SMS during this check.
-
-Local isolated Chrome checks verify migration, masked input, memory-only entry, unchanged other fields, reload, idle controls, and no call/SMS requests. The frontend production build also passes. A physical phone, call, SMS, or FCM delivery was not exercised.
+Run `npm ci`, `npm test`, `npm run build` and `npm audit` from `desktop/` using Node 22.22.2, 24.15 or newer supported release. Two DOM regression tests load the actual HTML and application module. They verify legacy-state cleanup, IP/port restoration, masked token entry, private values staying usable in the form, idle controls and no phone/SMS requests. Both tests failed against the old persistence logic. Earlier isolated Chrome checks independently verified the token-only migration and reload; the final DOM suite covers all three private fields. A physical phone, call, SMS or FCM delivery was not exercised.
 
 ## Android security analysis build
 
