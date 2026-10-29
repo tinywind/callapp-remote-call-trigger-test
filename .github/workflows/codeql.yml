@@ -35,6 +35,7 @@ jobs:
           - language: java-kotlin
             build-mode: manual
     env:
+      CODEQL_ACTION_DIFF_INFORMED_QUERIES: "false"
       GRADLE_USER_HOME: ${{ github.workspace }}/.tmp/gradle-user-home
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=false -Dorg.gradle.workers.max=2
     steps:
