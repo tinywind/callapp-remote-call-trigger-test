@@ -1,0 +1,127 @@
+name: CodeQL Extended
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "41 20 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: rust
+            build-mode: none
+          - language: java-kotlin
+            build-mode: manual
+    env:
+      CODEQL_ACTION_DIFF_INFORMED_QUERIES: "false"
+      GRADLE_USER_HOME: ${{ github.workspace }}/.tmp/gradle-user-home
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=false -Dorg.gradle.workers.max=2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        if: matrix.language == 'java-kotlin'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install the Android platform and build tools
+        if: matrix.language == 'java-kotlin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          (yes || true) | "$sdkmanager" --licenses >/dev/null
+          "$sdkmanager" --install "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Keep Gradle outputs inside the task directory
+        if: matrix.language == 'java-kotlin'
+        shell: bash
+        run: |
+          mkdir -p .tmp
+          cat > .tmp/codeql-gradle-output.gradle <<'GRADLE'
+          allprojects { targetProject ->
+              targetProject.layout.buildDirectory.set(new File(
+                  targetProject.rootProject.projectDir.parentFile,
+                  ".tmp/codeql-build/" + targetProject.name
+              ))
+          }
+          GRADLE
+
+      - name: Build and verify the actual Android receiver
+        if: matrix.language == 'java-kotlin'
+        working-directory: android
+        run: >
+          ./gradlew --no-daemon --project-cache-dir ../.tmp/gradle-project
+          --init-script ../.tmp/codeql-gradle-output.gradle
+          clean assembleDebug test lint
+
+      - name: Verify the APK and HTTP security test results
+        if: matrix.language == 'java-kotlin'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from zipfile import ZipFile
+          build = Path('.tmp/codeql-build/app')
+          apk = build / 'outputs/apk/debug/app-debug.apk'
+          assert apk.is_file() and apk.stat().st_size > 0
+          with ZipFile(apk) as archive:
+              assert {'AndroidManifest.xml', 'classes.dex'} <= set(archive.namelist())
+          tests = build / 'test-results/testDebugUnitTest/TEST-com.example.remotecallreceiver.CallHttpServerSecurityTest.xml'
+          suite = ElementTree.parse(tests).getroot()
+          assert int(suite.attrib['tests']) == 4
+          assert int(suite.attrib['failures']) == 0 and int(suite.attrib['errors']) == 0
+          assert int(suite.attrib['skipped']) == 0
+          print('APK bytes:', apk.stat().st_size, 'HTTP security tests:', suite.attrib['tests'])
+          PY
+
+      - name: Analyze the extracted source
+        id: analyze
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          category: /language:${{ matrix.language }}
+          output: .tmp/codeql-results/${{ matrix.language }}
+          upload: ${{ vars.CALLAPP_ADVANCED_CODEQL_ENABLED == 'true' && 'always' || 'never' }}
+
+      - name: Retain analysis evidence before the setup transition
+        if: always() && steps.analyze.outputs.sarif-output != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: codeql-verification-${{ matrix.language }}
+          path: ${{ steps.analyze.outputs.sarif-output }}
+          if-no-files-found: error
+          retention-days: 3
