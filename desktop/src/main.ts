@@ -3,7 +3,6 @@ import "./styles.css";
 type SavedFormState = {
   phoneIp: string;
   phonePort: string;
-  callToken: string;
   phoneNumber: string;
   smsMessage: string;
 };
@@ -70,7 +69,15 @@ const readSavedState = (): SavedFormState | null => {
   }
 
   try {
-    return JSON.parse(raw) as SavedFormState;
+    const state = JSON.parse(raw) as SavedFormState;
+    const saved: SavedFormState = {
+      phoneIp: state.phoneIp,
+      phonePort: state.phonePort,
+      phoneNumber: state.phoneNumber,
+      smsMessage: state.smsMessage || ""
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    return saved;
   } catch {
     return null;
   }
@@ -80,7 +87,6 @@ const saveState = () => {
   const state: SavedFormState = {
     phoneIp: phoneIpInput.value.trim(),
     phonePort: phonePortInput.value.trim(),
-    callToken: callTokenInput.value,
     phoneNumber: phoneNumberInput.value.trim(),
     smsMessage: smsMessageInput.value
   };
@@ -97,7 +103,6 @@ const restoreState = () => {
 
   phoneIpInput.value = state.phoneIp;
   phonePortInput.value = state.phonePort;
-  callTokenInput.value = state.callToken;
   phoneNumberInput.value = state.phoneNumber;
   smsMessageInput.value = state.smsMessage || "";
 };

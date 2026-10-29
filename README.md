@@ -41,6 +41,10 @@ production call-control integration.
   outside the repository and point `GOOGLE_APPLICATION_CREDENTIALS` to that
   local path.
 
+- The desktop token stays in the current window and is never saved in browser
+  storage; loading an older saved form removes its token. See [security
+  verification](SECURITY_CHECKS.md).
+
 ## Project Layout
 
 - `desktop/`: Tauri desktop client.
