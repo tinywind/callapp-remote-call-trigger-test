@@ -15,7 +15,7 @@ class RemoteCallMessagingService : FirebaseMessagingService() {
         val expectedToken = CallReceiverService.savedToken(this)
         val requestToken = data["token"].orEmpty()
 
-        if (requestToken != expectedToken) {
+        if (!CallTokenPolicy.matches(expectedToken, requestToken)) {
             CallReceiverService.setStoredStatus(this, "Rejected FCM call request: invalid token.")
             return
         }

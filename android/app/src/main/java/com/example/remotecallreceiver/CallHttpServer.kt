@@ -91,7 +91,7 @@ class CallHttpServer(
                     return
                 }
 
-                if (headers["x-call-token"] != token) {
+                if (!CallTokenPolicy.matches(token, headers["x-call-token"])) {
                     writeJson(client, "401 Unauthorized", "Invalid token.")
                     return
                 }

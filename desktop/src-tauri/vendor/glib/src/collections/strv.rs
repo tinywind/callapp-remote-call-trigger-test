@@ -725,6 +725,10 @@ impl StrV {
                 ffi::g_free(*self.ptr.as_ptr().add(i) as ffi::gpointer);
             }
 
+            if self.capacity != 0 {
+                *self.ptr.as_ptr().add(0) = ptr::null_mut();
+            }
+
             self.len = 0;
         }
     }
@@ -1479,21 +1483,21 @@ mod test {
         let items = ["str1", "str2", "str3", "str4"];
 
         items[..].run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), items.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
         });
 
         Vec::from(&items[..]).run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), items.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
         });
 
         StrV::from(&items[..]).run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), items.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
@@ -1501,7 +1505,7 @@ mod test {
 
         let v = items.iter().copied().map(String::from).collect::<Vec<_>>();
         items.run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), v.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
@@ -1509,11 +1513,19 @@ mod test {
 
         let v = items.iter().copied().map(GString::from).collect::<Vec<_>>();
         items.run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), v.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
         });
+    }
+
+    #[test]
+    fn test_clear_no_double_free() {
+        let mut strv = StrV::from(&["one", "two", "three"][..]);
+        assert_eq!(strv.len(), 3);
+        strv.clear();
+        assert_eq!(strv.len(), 0);
     }
 
     #[test]
