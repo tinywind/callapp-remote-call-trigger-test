@@ -90,8 +90,8 @@ class MainActivity : Activity() {
 
         tokenInput = EditText(this).apply {
             hint = "Token"
-            setText(CallReceiverService.DEFAULT_TOKEN)
-            inputType = InputType.TYPE_CLASS_TEXT
+            setText(CallReceiverService.savedToken(this@MainActivity))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
 
         val permissionButton = Button(this).apply {
@@ -149,8 +149,8 @@ class MainActivity : Activity() {
             return
         }
 
-        if (token.isBlank()) {
-            setStatus("Enter a shared token.")
+        if (!CallTokenPolicy.isConfigured(token)) {
+            setStatus("Enter a non-default shared token.")
             return
         }
 

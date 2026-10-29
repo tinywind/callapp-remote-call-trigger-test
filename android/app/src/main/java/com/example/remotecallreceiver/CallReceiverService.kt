@@ -31,6 +31,13 @@ class CallReceiverService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty().ifBlank { savedToken(this) }
+        if (intent?.action != ACTION_STOP && !CallTokenPolicy.isConfigured(token)) {
+            stopReceiver()
+            setStatus("Configure a non-default shared token before starting the receiver.")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> {
                 stopReceiver()
@@ -38,14 +45,12 @@ class CallReceiverService : Service() {
             }
             ACTION_HANG_UP -> {
                 val port = intent.getIntExtra(EXTRA_PORT, savedPort(this))
-                val token = intent.getStringExtra(EXTRA_TOKEN).orEmpty().ifBlank { savedToken(this) }
 
                 ensureReceiverRunning(port = port, token = token)
                 hangUpCall()
             }
             else -> {
                 val port = intent?.getIntExtra(EXTRA_PORT, savedPort(this)) ?: savedPort(this)
-                val token = intent?.getStringExtra(EXTRA_TOKEN).orEmpty().ifBlank { savedToken(this) }
                 val number = intent?.getStringExtra(EXTRA_NUMBER)?.trim().orEmpty()
 
                 startReceiver(port = port, token = token)
@@ -427,7 +432,7 @@ class CallReceiverService : Service() {
         const val EXTRA_TOKEN = "token"
         const val EXTRA_NUMBER = "number"
         const val DEFAULT_PORT = 8088
-        const val DEFAULT_TOKEN = "dev-token"
+        const val DEFAULT_TOKEN = ""
         const val PREFERENCES_NAME = "receiver-state"
         const val KEY_STATUS = "status"
         const val KEY_RUNNING = "running"
@@ -438,6 +443,10 @@ class CallReceiverService : Service() {
         private const val NOTIFICATION_ID = 1002
 
         fun start(context: Context, port: Int = savedPort(context), token: String = savedToken(context), number: String? = null): Boolean {
+            if (!CallTokenPolicy.isConfigured(token)) {
+                setStoredStatus(context, "Configure a non-default shared token before starting the receiver.")
+                return false
+            }
             val intent = Intent(context, CallReceiverService::class.java).apply {
                 putExtra(EXTRA_PORT, port)
                 putExtra(EXTRA_TOKEN, token)
@@ -466,6 +475,10 @@ class CallReceiverService : Service() {
         }
 
         fun hangUp(context: Context, port: Int = savedPort(context), token: String = savedToken(context)): Boolean {
+            if (!CallTokenPolicy.isConfigured(token)) {
+                setStoredStatus(context, "Configure a non-default shared token before starting the receiver.")
+                return false
+            }
             val intent = Intent(context, CallReceiverService::class.java).apply {
                 action = ACTION_HANG_UP
                 putExtra(EXTRA_PORT, port)
@@ -493,7 +506,8 @@ class CallReceiverService : Service() {
             context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
                 .getString(KEY_TOKEN, DEFAULT_TOKEN)
                 .orEmpty()
-                .ifBlank { DEFAULT_TOKEN }
+                .takeIf(CallTokenPolicy::isConfigured)
+                .orEmpty()
 
         fun setStoredStatus(context: Context, message: String) {
             context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)

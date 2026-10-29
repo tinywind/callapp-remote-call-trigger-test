@@ -63,11 +63,13 @@ the Phone and Notification permissions when prompted.
 Default receiver settings:
 
 - Port: `8088`
-- Token: `dev-token`
+- Token: empty until you configure a private shared value
 - Endpoint: `POST http://PHONE_IP:8088/call`
 - Hang up endpoint: `POST http://PHONE_IP:8088/hangup`
 - Send SMS endpoint: `POST http://PHONE_IP:8088/sms/send`
 - SMS backup endpoint: `POST http://PHONE_IP:8088/sms/backup`
+
+Set the same private shared token in the Android app and each client before starting the receiver. An empty token and the old public `dev-token` value are rejected, including a legacy saved value. Generate a value locally, for example with `openssl rand -hex 32`, and replace `<private-shared-token>` in the examples below. Keep the generated value out of Git.
 
 The request body must be JSON:
 
@@ -80,7 +82,7 @@ The request body must be JSON:
 The request must include:
 
 ```text
-X-Call-Token: dev-token
+X-Call-Token: <private-shared-token>
 Content-Type: application/json
 ```
 
@@ -90,7 +92,7 @@ The hang up request uses the same token header and does not require a body:
 Invoke-RestMethod `
   -Method Post `
   -Uri "http://PHONE_IP:8088/hangup" `
-  -Headers @{ "X-Call-Token" = "dev-token" }
+  -Headers @{ "X-Call-Token" = "<private-shared-token>" }
 ```
 
 The SMS send request uses the same token header:
@@ -99,7 +101,7 @@ The SMS send request uses the same token header:
 Invoke-RestMethod `
   -Method Post `
   -Uri "http://PHONE_IP:8088/sms/send" `
-  -Headers @{ "X-Call-Token" = "dev-token" } `
+  -Headers @{ "X-Call-Token" = "<private-shared-token>" } `
   -ContentType "application/json" `
   -Body '{"number":"+821012345678","message":"hello from pc"}'
 ```
@@ -111,7 +113,7 @@ provider:
 Invoke-RestMethod `
   -Method Post `
   -Uri "http://PHONE_IP:8088/sms/backup" `
-  -Headers @{ "X-Call-Token" = "dev-token" } `
+  -Headers @{ "X-Call-Token" = "<private-shared-token>" } `
   -OutFile ".\sms-backup.json"
 ```
 
@@ -121,7 +123,7 @@ The receiver can also be started over ADB for validation:
 adb shell am start-foreground-service `
   -n com.example.remotecallreceiver/.CallReceiverService `
   --ei port 8088 `
-  --es token dev-token
+  --es token "<private-shared-token>"
 ```
 
 ## Automatic Recovery Paths
@@ -161,7 +163,7 @@ Expected FCM call data payload:
 ```json
 {
   "action": "call",
-  "token": "dev-token",
+  "token": "<private-shared-token>",
   "number": "+821012345678",
   "port": "8088"
 }
@@ -172,7 +174,7 @@ Expected FCM hang up data payload:
 ```json
 {
   "action": "hangup",
-  "token": "dev-token",
+  "token": "<private-shared-token>",
   "port": "8088"
 }
 ```
@@ -192,7 +194,7 @@ $env:GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\service-account.json"
 node tools/send-fcm-call.mjs `
   --device-token "<android-fcm-token>" `
   --number "+821012345678" `
-  --call-token "dev-token" `
+  --call-token "<private-shared-token>" `
   --port "8088"
 ```
 
@@ -202,7 +204,7 @@ For FCM hang up testing, use:
 node tools/send-fcm-call.mjs `
   --device-token "<android-fcm-token>" `
   --action "hangup" `
-  --call-token "dev-token" `
+  --call-token "<private-shared-token>" `
   --port "8088"
 ```
 
@@ -229,7 +231,7 @@ You can also send a direct request from another client:
 Invoke-RestMethod `
   -Method Post `
   -Uri "http://PHONE_IP:8088/call" `
-  -Headers @{ "X-Call-Token" = "dev-token" } `
+  -Headers @{ "X-Call-Token" = "<private-shared-token>" } `
   -ContentType "application/json" `
   -Body '{"number":"+821012345678"}'
 ```

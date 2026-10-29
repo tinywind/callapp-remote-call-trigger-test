@@ -125,7 +125,10 @@ const main = async () => {
   const projectId = readOption("project-id") || serviceAccount.project_id;
   const deviceToken = requireOption("device-token");
   const action = readOption("action") || "call";
-  const callToken = readOption("call-token") || "dev-token";
+  const callToken = requireOption("call-token");
+  if (!callToken.trim() || callToken.trim() === "dev-token") {
+    throw new Error("Set an explicit non-default shared call token.");
+  }
   const number = readOption("number");
   const port = readOption("port") || "8088";
 
