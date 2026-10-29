@@ -52,8 +52,10 @@ production call-control integration.
 
 ## Android Receiver
 
-Build with JDK 17 and Gradle 9.8.2. AGP 9 provides Kotlin support directly, so
-the separate Kotlin Android plugin is no longer applied.
+Build with JDK 17 and the checked-in Gradle 9.8.2 wrapper: run
+`./gradlew assembleDebug` from `android/` (`gradlew.bat` on Windows). AGP 9
+provides Kotlin support directly, so the separate Kotlin Android plugin is no
+longer applied.
 
 Open `android/` in Android Studio, install it on the Samsung phone, and grant
 the Phone and Notification permissions when prompted.
