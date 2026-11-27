@@ -1,0 +1,25 @@
+# Orca worktree lifecycle hooks (only used when opened in Orca).
+scripts:
+  setup: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    main_root="${ORCA_ROOT_PATH:-$(git worktree list --porcelain | sed -n '1s/^worktree //p')}"
+    if [[ -n "$main_root" && -d "$main_root" ]]; then
+      main_root="$(cd "$main_root" && pwd -P)"
+    fi
+
+    if [[ -n "$main_root" && "$main_root" != "$(pwd -P)" ]]; then
+      for rel_path in android/local.properties android/app/google-services.json; do
+        if [[ ! -f "$rel_path" && -f "$main_root/$rel_path" ]]; then
+          mkdir -p "$(dirname "$rel_path")"
+          cp -p -- "$main_root/$rel_path" "$rel_path"
+        fi
+      done
+    fi
+
+    npm --prefix desktop ci
+
+    if command -v cargo >/dev/null 2>&1; then
+      cargo fetch --locked --manifest-path desktop/src-tauri/Cargo.toml
+    fi
